@@ -7,12 +7,12 @@
 svc_handler:
 systick_handler:
 	/* save user state */
-	mrs r0, psp
-	stmdb r0!, {r4, r5, r6, r7, r8, r9, r10, r11, lr}
+	mrs r0, psp // psp to r0
+	stmdb r0!, {r4, r5, r6, r7, r8, r9, r10, r11, lr} // final address to r0
 
 	/* load kernel state */
 	pop {r4, r5, r6, r7, r8, r9, r10, r11, ip, lr}
-	msr psr_nzcvq, ip
+	msr psr_nzcvq, ip // psr_nzcvq to ip
 
 	bx lr
 
@@ -26,7 +26,7 @@ activate:
 	msr psp, r0
 	mov r0, #3
 	msr control, r0
-	isb
+	isb // flush pipeline and following fetch from cache or mem
 
 	/* load user state */
 	pop {r4, r5, r6, r7, r8, r9, r10, r11, lr}
