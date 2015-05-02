@@ -2,12 +2,13 @@
 #include <stdint.h>
 #include "reg.h"
 #include "asm.h"
+#include "host.h"
 
 /* Size of our user task stacks in words */
 #define STACK_SIZE	256
 
 /* Number of user task */
-#define TASK_LIMIT	3
+#define TASK_LIMIT	10 // task_count limit
 
 /* USART TXE Flag
  * This flag is cleared when data is written to USARTx_DR and
@@ -63,18 +64,20 @@ void delay(int count)
  * works correctly.
  * http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0552a/Babefdjc.html
  */
-unsigned int *create_task(unsigned int *stack, void (*start)(void))
+unsigned int *create_task(unsigned int *stack, void (*start)(void), int priority)
 {
 	static int first = 1;
 
-	stack += STACK_SIZE - 32; /* End of stack, minus what we are about to push */
+	stack += STACK_SIZE - 34; /* End of stack, minus what we are about to push */
 	if (first) {
 		stack[8] = (unsigned int) start;
+		stack[17] = priority;
 		first = 0;
 	} else {
 		stack[8] = (unsigned int) THREAD_PSP;
 		stack[15] = (unsigned int) start;
 		stack[16] = (unsigned int) 0x01000000; /* PSR Thumb bit */
+		stack[17] = priority;
 	}
 	stack = activate(stack);
 
@@ -103,6 +106,16 @@ void task2_func(void)
 	}
 }
 
+void task3_func(void)
+{
+	print_str("task3: Created!\n");
+	print_str("task3: Now, return to kernel mode\n");
+	syscall();
+	while (1) {
+		print_str("task3: Running...\n");
+		delay(1000);
+	}
+}
 int main(void)
 {
 	unsigned int user_stacks[TASK_LIMIT][STACK_SIZE];
@@ -113,14 +126,18 @@ int main(void)
 	usart_init();
 
 	print_str("OS: Starting...\n");
-	print_str("OS: First create task 1\n");
-	usertasks[0] = create_task(user_stacks[0], &task1_func);
+	print_str("OS: First create task 1 with priority = 2\n");
+	usertasks[0] = create_task(user_stacks[0], &task1_func, 2);
 	task_count += 1;
-	print_str("OS: Back to OS, create task 2\n");
-	usertasks[1] = create_task(user_stacks[1], &task2_func);
+	print_str("OS: Back to OS, create task 2 with priority = 1\n");
+	usertasks[1] = create_task(user_stacks[1], &task2_func, 1);
+	task_count += 1;
+	print_str("OS: New task, create task 3 with priority = 3\n");
+	usertasks[2] = create_task(user_stacks[2], &task3_func, 3);
 	task_count += 1;
 
-	print_str("\nOS: Start round-robin scheduler!\n");
+	//print_str("\nOS: Start round-robin scheduler!\n");
+	print_str("\nOS: Start priority-based scheduler!\n");
 
 	/* SysTick configuration */
 	*SYSTICK_LOAD = 7200000;
@@ -128,12 +145,19 @@ int main(void)
 	*SYSTICK_CTRL = 0x07;
 	current_task = 0;
 
+	size_t task, highest = 0, i;
 	while (1) {
-		print_str("OS: Activate next task\n");
+		for(i = 0; i < task_count; i++){
+			task = *(usertasks[i] + 19);
+			if(task > highest){ // if equal we ignore, first serve
+				print_str("task > highest\n");
+				highest =  task;
+				current_task = i;
+			}
+		}
+		print_str("OS: Activate the next high priority task\n");
 		usertasks[current_task] = activate(usertasks[current_task]);
-		print_str("OS: Back to OS\n");
-
-		current_task = current_task == (task_count - 1) ? 0 : current_task + 1;
+		
 	}
 
 	return 0;
